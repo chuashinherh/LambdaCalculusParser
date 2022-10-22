@@ -29,30 +29,13 @@ import Data.Char
 --
 -- >>> parse longLambdaP "(λx(λy.x))"
 -- UnexpectedChar '('
--- test :: Parser Lambda
--- test = do
---     is '('
---     is 'λ'
---     x <- var
---     is '.'
---     x2 <- var
---     is ')'
---     pure (build $ lam x (term x2))
 
--- <expr> ::= <var>
--- 		   | <var> <expr>
--- 		   | "\\" <expr> "." <expr>
---         | "(" <expr> ")"
---         | "(" <expr> ")" <expr>
--- <var> ::= [a-z]
+-- Parser that creates a Builder expression from the lambda expression.
+exprLong :: Parser Builder
+exprLong = chainl1 atomLong (pure ap)
 
--- <expr> ::= <atom> <expr> | <atom>
--- <atom> ::= "λ" <expr> "." <expr> | <var> | "(" <expr> ")"
--- <var> ::= [a-z]
-
-expr :: Parser Builder
-expr = chainl1 atomLong (pure ap)
-
+-- chainl1 function obtained from FIT2102 Course Notes.
+-- Handle repeated chains of operators of unknown length that are left associative.
 chainl1 :: Parser a -> Parser (a->a->a) -> Parser a
 chainl1 p op = p >>= rest
     where rest a = (do
@@ -61,29 +44,35 @@ chainl1 p op = p >>= rest
                       rest (f a b)
                    ) ||| pure a
 
+-- Parser that combines various parsers together to process the characters in the lambda expression.
 atomLong :: Parser Builder
-atomLong = lamLong ||| term1 ||| paren
+atomLong = lamLong ||| term1 ||| parenLong
 
+-- Parser that parses variables in the lambda expression.
 var :: Parser Char
 var = satisfy isAlpha ||| is '_'
 
+-- Parser for the parameters of the lambda expression.
 lamLong :: Parser Builder
 lamLong = do is 'λ'
              x <- var
              is '.'
-             lam x <$> expr
+             lam x <$> exprLong
 
+-- Parser for the function body of the lambda expression.
 term1 :: Parser Builder
 term1 = term <$> var
 
-paren :: Parser Builder
-paren = do is '('
-           e <- expr
-           is ')'
-           pure e
+-- Parser to parse lambda expressions with parentheses.
+parenLong :: Parser Builder
+parenLong = do is '('
+               e <- exprLong
+               is ')'
+               pure e
 
+-- Parser that parses a long lambda expression.
 longLambdaP :: Parser Lambda
-longLambdaP = build <$> expr
+longLambdaP = build <$> exprLong
 
 -- | Parses a string representing a lambda calculus expression in short form
 --
@@ -114,38 +103,52 @@ longLambdaP = build <$> expr
 -- <term1> ::= <var>
 -- <var> ::= [a-z] | [A-Z]
 
+-- Parser that creates a Builder expression for the start of the lambda expression.
+-- This is to make sure that the lambda expression starts with a 'λ' character.
 exprStart :: Parser Builder
 exprStart = chainl1 atomStart (pure ap)
 
-expr2 :: Parser Builder
-expr2 = chainl1 atomShortLam (pure ap)
+-- Parser that creates a Builder expression for the parameters from the lambda expression.
+exprShortLam :: Parser Builder
+exprShortLam = chainl1 atomShortLam (pure ap)
 
-expr3 :: Parser Builder
-expr3 = chainl1 atomShortTerm (pure ap)
+-- Parser that creates a Builder expression from the function body of the lambda expression.
+exprShortTerm :: Parser Builder
+exprShortTerm = chainl1 atomShortTerm (pure ap)
 
+-- Parser that combines various parsers together to process the characters 
+-- at the start of the lambda expression.
 atomStart :: Parser Builder
-atomStart = (is 'λ' >> lam2) ||| paren2
+atomStart = (is 'λ' >> lamShort) ||| parenShort
 
+-- Parser that combines various parsers together to process the characters of the parameters 
+-- of the lambda expression.
 atomShortLam :: Parser Builder
-atomShortLam = lam2 ||| paren2 ||| dot
+atomShortLam = lamShort ||| parenShort ||| dot
 
+-- Parser that combines various parsers together to process the characters in the 
+-- function body of the lambda expression.
 atomShortTerm :: Parser Builder
-atomShortTerm = (is 'λ' >> lam2) ||| term1 ||| paren2
+atomShortTerm = (is 'λ' >> lamShort) ||| term1 ||| parenShort
 
-lam2 :: Parser Builder
-lam2 = do x <- var
-          lam x <$> expr2
+-- Parser for the parameters of the lambda expression.
+lamShort :: Parser Builder
+lamShort = do x <- var
+              lam x <$> exprShortLam
 
+-- Parser that parses a dot character.
 dot :: Parser Builder
 dot = do is '.'
-         expr3
+         exprShortTerm
 
-paren2 :: Parser Builder
-paren2 = do is '('
-            e <- expr3
-            is ')'
-            pure e
+-- Parser to parse lambda expressions with parentheses.
+parenShort :: Parser Builder
+parenShort = do is '('
+                e <- exprShortTerm
+                is ')'
+                pure e
 
+-- Parser that parses a short lambda expression.
 shortLambdaP :: Parser Lambda
 shortLambdaP = build <$> exprStart
 
@@ -190,48 +193,57 @@ lambdaP = shortLambdaP
 -- >>> lamToBool <$> parse logicP "if True and not False then True or True else False"
 -- Result >< Just True
 
+-- Parser that parses one or more space characters.
 spaces1 :: Parser String
 spaces1 = list1 space
 
 -- chainr1 function referenced from https://stackoverflow.com/questions/40648175/parse-expression-right-to-left
+-- Handle repeated chains of operators of unknown length that are right associative.
 chainr1 :: Parser a -> Parser (a->a->a) -> Parser a
 chainr1 p op = p >>= rest
   where
     rest x = ((\f y -> f x y) <$> op <*> (p >>= rest))
              ||| pure x
 
+-- Parser that parses a literal such as "True", "False", etc.
 literal :: String -> Parser String
 literal l = do spaces
                string l
                pure l
 
+-- Parser that parses an operator that requires a space before and after it 
+-- such as "and", "or", etc.
 literalOp :: String -> Parser String
 literalOp l = do spaces1
                  string l
                  spaces1
                  pure l
 
+-- Parser that creates a Builder expression from the logical expression.
 exprLogic :: Parser Builder
 exprLogic = chainl1 exprOr (pure ap)
 
+-- Parser that creates a Builder expression for the sections in the logical expression 
+-- that contain "or".
 exprOr :: Parser Builder
-exprOr = chainl1 exprAnd or2
+exprOr = chainl1 exprAnd orParser
 
+-- Parser that creates a Builder expression for the sections in the logical expression 
+-- that contain "and".
 exprAnd :: Parser Builder
-exprAnd = chainl1 exprNot and2
+exprAnd = chainl1 exprNot andParser
 
+-- Parser that creates a Builder expression for the sections in the logical expression 
+-- that contain "not".
+-- Using chainr1 here instead of chainl1 is because "not" is right associative.
 exprNot :: Parser Builder
-exprNot = chainr1 atomTest (pure ap)
+exprNot = chainr1 atomLogic (pure ap)
 
-atomTest :: Parser Builder
-atomTest = true ||| false ||| not1
+-- Parser that combines various parsers together to process the characters in the logical expression.
+atomLogic :: Parser Builder
+atomLogic = true ||| false ||| notParser ||| parenLogic
            ||| do spaces
-                  is '('
-                  x <- exprLogic
-                  is ')'
-                  pure x
-           ||| do spaces
-                  a <- if1
+                  a <- ifParser
                   b <- exprLogic
                   literalOp "then"
                   c <- exprLogic
@@ -239,43 +251,62 @@ atomTest = true ||| false ||| not1
                   d <- exprLogic
                   pure $ a `ap` b `ap` c `ap` d
 
+-- Parser to parse logical expressions with parentheses.
+parenLogic :: Parser Builder
+parenLogic = do spaces
+                is '('
+                x <- exprLogic
+                is ')'
+                pure x
+
+-- Parser to parse the literal "True".
 true :: Parser Builder
 true = do literal "True"
           pure $ boolToLam True
 
+-- Parser to parse the literal "False".
 false :: Parser Builder
 false = do literal "False"
            pure $ boolToLam False
 
-if1 :: Parser Builder
-if1 = do literal "if"
-         pure if2
+-- Parser to parse the operator "if".
+ifParser :: Parser Builder
+ifParser = do literal "if"
+              pure ifBuilder
 
-if2 :: Builder
-if2 = lam 'b' (lam 't' (lam 'f' (term 'b' `ap` term 't' `ap` term 'f')))
+-- Creates a Builder expression for the operator "if".
+ifBuilder :: Builder
+ifBuilder = lam 'b' (lam 't' (lam 'f' (term 'b' `ap` term 't' `ap` term 'f')))
 
-and2 :: Parser(Builder -> Builder -> Builder)
-and2 = do literalOp "and"
-          pure and3
+-- Parser to parse the operator "and".
+andParser :: Parser (Builder -> Builder -> Builder)
+andParser = do literalOp "and"
+               pure andBuilder
 
-and3 :: Builder -> Builder -> Builder
-and3 a b = lam 'x' (lam 'y' (if2 `ap` term 'x' `ap` term 'y' `ap` boolToLam False)) `ap` a `ap` b
+-- Creates a Builder expression for the operator "and".
+andBuilder :: Builder -> Builder -> Builder
+andBuilder a b = lam 'x' (lam 'y' (ifBuilder `ap` term 'x' `ap` term 'y' `ap` boolToLam False)) `ap` a `ap` b
 
-or2 :: Parser (Builder -> Builder -> Builder)
-or2 = do literalOp "or"
-         pure or3
+-- Parser to parse the operator "or".
+orParser :: Parser (Builder -> Builder -> Builder)
+orParser = do literalOp "or"
+              pure orBuilder
 
-or3 :: Builder -> Builder -> Builder
-or3 a b = lam 'x' (lam 'y' (if2 `ap` term 'x' `ap` boolToLam True `ap` term 'y')) `ap` a `ap` b
+-- Creates a Builder expression for the operator "or".
+orBuilder :: Builder -> Builder -> Builder
+orBuilder a b = lam 'x' (lam 'y' (ifBuilder `ap` term 'x' `ap` boolToLam True `ap` term 'y')) `ap` a `ap` b
 
-not1 :: Parser Builder
-not1 = do literal "not"
-          spaces1
-          pure not2
+-- Parser to parse the operator "not".
+notParser :: Parser Builder
+notParser = do literal "not"
+               spaces1
+               pure notBuilder
 
-not2 :: Builder
-not2 = lam 'x' (if2 `ap` term 'x' `ap` boolToLam False `ap` boolToLam True)
+-- Creates a Builder expression for the operator "not".
+notBuilder :: Builder
+notBuilder = lam 'x' (ifBuilder `ap` term 'x' `ap` boolToLam False `ap` boolToLam True)
 
+-- Parser that parses a logical expression.
 logicP :: Parser Lambda
 logicP = build <$> exprLogic
 
@@ -300,45 +331,56 @@ logicP = build <$> exprLogic
 -- >>> lamToInt <$> parse basicArithmeticP "5 + 9 - 3 + 2"
 -- Result >< Just 13
 
-exprAddMinus :: Parser Builder
-exprAddMinus = chainl1 atomBasicArith (add1 ||| minus1)
+-- Parser that creates a Builder expression from the basic arithmetic expression.
+exprBasicArith :: Parser Builder
+exprBasicArith = chainl1 atomBasicArith (addParser ||| minusParser)
 
+-- Parser that processes the characters in the basic arithmetic expression.
 atomBasicArith :: Parser Builder
 atomBasicArith = naturalNo
 
+-- Creates a Builder expression of a natural number.
 naturalNo :: Parser Builder
 naturalNo = do spaces
                x <- munch1 isDigit
                let y = read x
                pure $ intToLam y
 
+-- Creates a Builder expression for the successor of a natural number.
 succ1 :: Builder
 succ1 = lam 'n' $ lam 'f' $ lam 'x' (term 'f' `ap` (term 'n' `ap` term 'f' `ap` term 'x'))
 
+-- Creates a Builder expression for the predecessor of a natural number.
 pred1 :: Builder
 pred1 = lam 'n' $ lam 'f' $ lam 'x' (term 'n' `ap` lam 'g' (lam 'h' (term 'h' `ap` (term 'g' `ap` term 'f'))) `ap` lam 'u' (term 'x') `ap` lam 'u' (term 'u'))
 
+-- Parser that parses an operator such as "+", "-", etc.
 operator :: Char -> Parser Char
 operator c = do spaces
                 is c
                 pure c
 
-add1 :: Parser (Builder -> Builder -> Builder)
-add1 = do operator '+'
-          pure add2
+-- Parser to parse the operator "+".
+addParser :: Parser (Builder -> Builder -> Builder)
+addParser = do operator '+'
+               pure addBuilder
 
-add2 :: Builder -> Builder -> Builder
-add2 a b = lam 'x' (lam 'y' (term 'y' `ap` succ1 `ap` a)) `ap` a `ap` b
+-- Creates a Builder expression for the operator "+".
+addBuilder :: Builder -> Builder -> Builder
+addBuilder a b = lam 'x' (lam 'y' (term 'y' `ap` succ1 `ap` a)) `ap` a `ap` b
 
-minus1 :: Parser (Builder -> Builder -> Builder)
-minus1 = do operator '-'
-            pure minus2
+-- Parser to parse the operator "-".
+minusParser :: Parser (Builder -> Builder -> Builder)
+minusParser = do operator '-'
+                 pure minusBuilder
 
-minus2 :: Builder -> Builder -> Builder
-minus2 a b = lam 'x' (lam 'y' (term 'y' `ap` pred1 `ap` a)) `ap` a `ap` b
+-- Creates a Builder expression for the operator "-".
+minusBuilder :: Builder -> Builder -> Builder
+minusBuilder a b = lam 'x' (lam 'y' (term 'y' `ap` pred1 `ap` a)) `ap` a `ap` b
 
+-- Parser that parses a basic arithmetic expression.
 basicArithmeticP :: Parser Lambda
-basicArithmeticP = build <$> exprAddMinus
+basicArithmeticP = build <$> exprBasicArith
 
 -- | Parse arithmetic expressions involving + - * ** () and natural numbers into lambda calculus
 -- >>> lamToInt <$> parse arithmeticP "5 + 9 * 3 - 2**3"
@@ -347,15 +389,22 @@ basicArithmeticP = build <$> exprAddMinus
 -- >>> lamToInt <$> parse arithmeticP "100 - 4 * 2**(4-1)"
 -- Result >< Just 68
 
+-- Parser that creates a Builder expression for the sections in the arithmetic expression 
+-- that contain "+" or "-".
 exprArith :: Parser Builder
-exprArith = chainl1 exprMult (add1 ||| minus1)
+exprArith = chainl1 exprMult (addParser ||| minusParser)
 
+-- Parser that creates a Builder expression for the sections in the arithmetic expression 
+-- that contain "*".
 exprMult :: Parser Builder
-exprMult = chainl1 exprExp mult1
+exprMult = chainl1 exprExp multParser
 
+-- Parser that creates a Builder expression for the sections in the arithmetic expression 
+-- that contain "**".
 exprExp :: Parser Builder
-exprExp = chainl1 atomArith exp1
+exprExp = chainl1 atomArith expParser
 
+-- Parser that combines various parsers together to process the characters in the arithmetic expression.
 atomArith :: Parser Builder
 atomArith = naturalNo
             ||| do spaces
@@ -364,7 +413,7 @@ atomArith = naturalNo
                    is ')'
                    pure x
             ||| do spaces
-                   a <- if1
+                   a <- ifParser
                    b <- exprComp
                    literalOp "then"
                    c <- exprComp
@@ -372,23 +421,28 @@ atomArith = naturalNo
                    d <- exprComp
                    pure $ a `ap` b `ap` c `ap` d
 
-mult1 :: Parser (Builder -> Builder -> Builder)
-mult1 = do operator '*'
-           pure mult3
+-- Parser to parse the operator "*".
+multParser :: Parser (Builder -> Builder -> Builder)
+multParser = do operator '*'
+                pure multBuilder2
 
-mult2 :: Builder
-mult2 = lam 'x' (lam 'y' (lam 'f' (term 'x' `ap` (term 'y' `ap` term 'f'))))
+multBuilder :: Builder
+multBuilder = lam 'x' (lam 'y' (lam 'f' (term 'x' `ap` (term 'y' `ap` term 'f'))))
 
-mult3 :: Builder -> Builder -> Builder
-mult3 a b = mult2 `ap` a `ap` b
+-- Creates a Builder expression for the operator "*".
+multBuilder2 :: Builder -> Builder -> Builder
+multBuilder2 a b = multBuilder `ap` a `ap` b
 
-exp1 :: Parser (Builder -> Builder -> Builder)
-exp1 = do literal "**"
-          pure exp2
+-- Parser to parse the operator "**".
+expParser :: Parser (Builder -> Builder -> Builder)
+expParser = do literal "**"
+               pure expBuilder
 
-exp2 :: Builder -> Builder -> Builder
-exp2 a b = lam 'x' (lam 'y' (term 'y' `ap` term 'x')) `ap` a `ap` b
+-- Creates a Builder expression for the operator "**".
+expBuilder :: Builder -> Builder -> Builder
+expBuilder a b = lam 'x' (lam 'y' (term 'y' `ap` term 'x')) `ap` a `ap` b
 
+-- Parser that parses an arithmetic expression.
 arithmeticP :: Parser Lambda
 arithmeticP = build <$> exprArith
 
@@ -408,27 +462,31 @@ arithmeticP = build <$> exprArith
 -- >>> lamToBool <$> parse complexCalcP "15 - 2 * 2 != 2**3 + 3 or 5 * 3 + 1 < 9"
 -- Result >< Just False
 
+-- Parser that creates a Builder expression for the sections in the complex calculation expression 
+-- that contain "and".
+exprCompAnd :: Parser Builder
+exprCompAnd = chainl1 exprCompOr andParser
+
+-- Parser that creates a Builder expression for the sections in the complex calculation expression 
+-- that contain "or".
+exprCompOr :: Parser Builder
+exprCompOr = chainl1 exprComp orParser
+
+-- Parser that creates a Builder expression for the sections in the complex calculation expression 
+-- that contain comparison operators.
 exprComp :: Parser Builder
-exprComp = chainl1 exprComp2 and2
+exprComp = chainl1 (exprLogic ||| atomComp) (compOp ||| equalBoolParser)
+            ||| chainl1 (exprArith ||| atomComp) (compOp ||| equalIntParser)
 
-exprComp2 :: Parser Builder
-exprComp2 = chainl1 exprComp3 or2
+-- Parser that parses a comparison operator such as "==", "<=", etc.
+compOp :: Parser (Builder -> Builder -> Builder)
+compOp = lessOrEqualParser ||| greaterOrEqualParser ||| notEqualParser ||| greaterParser ||| lessParser
 
-exprComp3 :: Parser Builder
-exprComp3 = chainl1 (exprLogic ||| atomComp) (test ||| equalBool)
-            ||| chainl1 (exprArith ||| atomComp) (test ||| equal1)
-
-test :: Parser (Builder -> Builder -> Builder)
-test = lessOrEqual1 ||| greaterOrEqual1 ||| notEqual1 ||| greater1 ||| less1
-
+-- Parser that combines various parsers together to process the characters in the complex calculation expression.
 atomComp :: Parser Builder
-atomComp = do spaces
-              is '('
-              x <- exprComp
-              is ')'
-              pure x
+atomComp = parenComp
            ||| do spaces
-                  a <- if1
+                  a <- ifParser
                   b <- exprComp
                   literalOp "then"
                   c <- exprComp
@@ -436,63 +494,86 @@ atomComp = do spaces
                   d <- exprComp
                   pure $ a `ap` b `ap` c `ap` d
 
+-- Parser to parse complex calculation expressions with parentheses.
+parenComp :: Parser Builder
+parenComp = do spaces
+               is '('
+               x <- exprComp
+               is ')'
+               pure x
+
+-- Creates a Builder expression that checks whether a number is 0.
 isZero :: Builder
 isZero = lam 'n' (term 'n' `ap` lam 'x' (boolToLam False) `ap` boolToLam True)
 
-lessOrEqual1 :: Parser (Builder -> Builder -> Builder)
-lessOrEqual1 = do literal "<="
-                  pure lessOrEqual2
+-- Parser to parse the operator "<=".
+lessOrEqualParser :: Parser (Builder -> Builder -> Builder)
+lessOrEqualParser = do literal "<="
+                       pure lessOrEqualBuilder
 
-lessOrEqual2 :: Builder -> Builder -> Builder
-lessOrEqual2 m n = lam 'm' (lam 'n' (isZero `ap` minus2 m n)) `ap` m `ap` n
+-- Creates a Builder expression for the operator "<=".
+lessOrEqualBuilder :: Builder -> Builder -> Builder
+lessOrEqualBuilder m n = lam 'm' (lam 'n' (isZero `ap` minusBuilder m n)) `ap` m `ap` n
 
-equal1 :: Parser (Builder -> Builder -> Builder)
-equal1 = do literal "=="
-            pure equal2
+-- Parser to parse the operator "==" for numbers.
+equalIntParser :: Parser (Builder -> Builder -> Builder)
+equalIntParser = do literal "=="
+                    pure equalIntBuilder
 
-equal2 :: Builder -> Builder -> Builder
-equal2 m n = lam 'm' (lam 'n' (and3 (lessOrEqual2 m n) (lessOrEqual2 n m))) `ap` m `ap` n
+-- Creates a Builder expression for the operator "==" for numbers.
+equalIntBuilder :: Builder -> Builder -> Builder
+equalIntBuilder m n = lam 'm' (lam 'n' (andBuilder (lessOrEqualBuilder m n) (lessOrEqualBuilder n m))) `ap` m `ap` n
 
-equalBool :: Parser (Builder -> Builder -> Builder)
-equalBool = do literal "=="
-               pure xnor
+-- Parser to parse the operator "==" for boolean values.
+equalBoolParser :: Parser (Builder -> Builder -> Builder)
+equalBoolParser = do literal "=="
+                     pure xnor
 
+-- Creates a Builder expression for the operator "==" for boolean values.
 -- XNOR church encoding modified from XOR church encoding. 
 -- Referenced from https://en.wikipedia.org/wiki/Church_encoding#Church_Booleans
 xnor :: Builder -> Builder -> Builder
-xnor m n = not2 `ap` (lam 'm' (lam 'n' (if2 `ap` term 'm' `ap` (not2 `ap` term 'n') `ap` term 'n')) `ap` m `ap` n)
+xnor m n = notBuilder `ap` (lam 'm' (lam 'n' (ifBuilder `ap` term 'm' `ap` (notBuilder `ap` term 'n') `ap` term 'n')) `ap` m `ap` n)
 
-notEqual1 :: Parser (Builder -> Builder -> Builder)
-notEqual1 = do literal "!="
-               pure notEqual2
+-- Parser to parse the operator "!=".
+notEqualParser :: Parser (Builder -> Builder -> Builder)
+notEqualParser = do literal "!="
+                    pure notEqualBuilder
 
-notEqual2 :: Builder -> Builder -> Builder
-notEqual2 m n = not2 `ap` equal2 m n
+-- Creates a Builder expression for the operator "!=".
+notEqualBuilder :: Builder -> Builder -> Builder
+notEqualBuilder m n = notBuilder `ap` equalIntBuilder m n
 
-greater1 :: Parser (Builder -> Builder -> Builder)
-greater1 = do literal ">"
-              pure greater2
+-- Parser to parse the operator ">".
+greaterParser :: Parser (Builder -> Builder -> Builder)
+greaterParser = do literal ">"
+                   pure greaterBuilder
 
-greater2 :: Builder -> Builder -> Builder
-greater2 m n = not2 `ap` lessOrEqual2 m n
+-- Creates a Builder expression for the operator ">".
+greaterBuilder :: Builder -> Builder -> Builder
+greaterBuilder m n = notBuilder `ap` lessOrEqualBuilder m n
 
-less1 :: Parser (Builder -> Builder -> Builder)
-less1 = do literal "<"
-           pure less2
+-- Parser to parse the operator "<".
+lessParser :: Parser (Builder -> Builder -> Builder)
+lessParser = do literal "<"
+                pure lessBuilder
 
-less2 :: Builder -> Builder -> Builder
-less2 m n = greater2 n m
+-- Creates a Builder expression for the operator "<".
+lessBuilder :: Builder -> Builder -> Builder
+lessBuilder m n = greaterBuilder n m
 
-greaterOrEqual1 :: Parser (Builder -> Builder -> Builder)
-greaterOrEqual1 = do literal ">="
-                     pure greaterOrEqual2
+-- Parser to parse the operator ">=".
+greaterOrEqualParser :: Parser (Builder -> Builder -> Builder)
+greaterOrEqualParser = do literal ">="
+                          pure greaterOrEqualBuilder
 
-greaterOrEqual2 :: Builder -> Builder -> Builder
-greaterOrEqual2 m n = not2 `ap` less2 m n
+-- Creates a Builder expression for the operator ">=".
+greaterOrEqualBuilder :: Builder -> Builder -> Builder
+greaterOrEqualBuilder m n = notBuilder `ap` lessBuilder m n
 
+-- Parser that parses a complex calculation expression.
 complexCalcP :: Parser Lambda
 complexCalcP = build <$> exprComp
-
 
 {-|
     Part 3
@@ -518,46 +599,60 @@ complexCalcP = build <$> exprComp
 --
 -- >>> parse listP "[0, 0"
 -- UnexpectedEof
-null1 :: Builder
-null1 = lam 'c' (lam 'n' (term 'n'))
 
-isNull1 :: Builder
-isNull1 = lam 'l' (term 'l' `ap` lam 'h' (lam 't' (boolToLam False)) `ap` boolToLam True)
+-- Creates a Builder expression for an empty list.
+nullBuilder :: Builder
+nullBuilder = lam 'c' (lam 'n' (term 'n'))
 
-cons1 :: Builder
-cons1 = lam 'h' (lam 't' (lam 'c' (lam 'n' (term 'c' `ap` term 'h' `ap` (term 't' `ap` term 'c' `ap` term 'n')))))
+-- Creates a Builder expression for the operator "isNull".
+isNullBuilder :: Builder
+isNullBuilder = lam 'l' (term 'l' `ap` lam 'h' (lam 't' (boolToLam False)) `ap` boolToLam True)
 
-head1 :: Builder
-head1 = lam 'l' (term 'l' `ap` lam 'h' (lam 't' (term 'h')) `ap` boolToLam False)
+-- Creates a Builder expression for the operator "cons".
+consBuilder :: Builder
+consBuilder = lam 'h' (lam 't' (lam 'c' (lam 'n' (term 'c' `ap` term 'h' `ap` (term 't' `ap` term 'c' `ap` term 'n')))))
 
-tail1 :: Builder
-tail1 = lam 'l' (lam 'c' (lam 'n' (term 'l' `ap` lam 'h' (lam 't' (lam 'g' (term 'g' `ap` term 'h' `ap` (term 't' `ap` term 'c')))) `ap` lam 't' (term 'n') `ap` lam 'h' (lam 't' (term 't')))))
+-- Creates a Builder expression for the operator "head".
+headBuilder :: Builder
+headBuilder = lam 'l' (term 'l' `ap` lam 'h' (lam 't' (term 'h')) `ap` boolToLam False)
 
+-- Creates a Builder expression for the operator "tail".
+tailBuilder :: Builder
+tailBuilder = lam 'l' (lam 'c' (lam 'n' (term 'l' `ap` lam 'h' (lam 't' (lam 'g' (term 'g' `ap` term 'h' `ap` (term 't' `ap` term 'c')))) `ap` lam 't' (term 'n') `ap` lam 'h' (lam 't' (term 't')))))
+
+-- Parser that creates a Builder expression for the list expression.
 exprList :: Parser Builder
 exprList = chainr1 atomList (pure ap)
 
+-- Parser that combines various parsers together to process the characters in the list expression.
 atomList :: Parser Builder
-atomList = (spaces >> is '[' >> is ']' >> pure null1)
-           ||| do spaces
-                  is '['
-                  x <- atomList
-                  y <- exprList
-                  pure $ cons1 `ap` x `ap` y
-           ||| openB ||| closeB ||| exprComp ||| exprLogic ||| exprArith
+atomList = (spaces >> is '[' >> is ']' >> pure nullBuilder)
+           ||| listComma ||| openB ||| closeB ||| exprComp ||| exprLogic ||| exprArith
 
+-- Parser that parses the character '['.
 openB :: Parser Builder
 openB = do spaces
-           is ','
-           spaces
+           is '['
            x <- atomList
            y <- exprList
-           pure $ cons1 `ap` x `ap` y
+           pure $ consBuilder `ap` x `ap` y
 
+-- Parser that parses the character ','.
+listComma :: Parser Builder
+listComma = do spaces
+               is ','
+               spaces
+               x <- atomList
+               y <- exprList
+               pure $ consBuilder `ap` x `ap` y
+
+-- Parser that parses the character ']'.
 closeB :: Parser Builder
 closeB = do spaces
             is ']'
-            pure null1
+            pure nullBuilder
 
+-- Parser that parses a list expression.
 listP :: Parser Lambda
 listP = build <$> exprList
 
@@ -572,38 +667,53 @@ listP = build <$> exprList
 --
 -- >>> lamToBool <$> parse listOpP "isNull [1, 2, 3]"
 -- Result >< Just False
+
+-- Parser that creates a Builder expression for the list operator or the list.
 exprListOp :: Parser Builder
 exprListOp = chainr1 atomListOp (pure ap)
 
+-- Parser that combines various parsers together to process the characters in the 
+-- list operator or the list.
 atomListOp :: Parser Builder
-atomListOp = exprList ||| tail2 ||| head2 ||| isNull2 ||| cons2
+atomListOp = exprList ||| tailParser ||| headParser ||| isNullParser ||| consParser
 
-head2 :: Parser Builder
-head2 = do literal "head"
-           pure head1
+-- Parser to parse the operator "head".
+headParser :: Parser Builder
+headParser = do literal "head"
+                pure headBuilder
 
-tail2 :: Parser Builder
-tail2 = do literal "rest"
-           pure tail1
+-- Parser to parse the operator "tail".
+tailParser :: Parser Builder
+tailParser = do literal "rest"
+                pure tailBuilder
+             ||| do literal "tail"
+                    pure tailBuilder
 
-isNull2 :: Parser Builder
-isNull2 = do literal "isNull"
-             pure isNull1
+-- Parser to parse the operator "isNull".
+isNullParser :: Parser Builder
+isNullParser = do literal "isNull"
+                  pure isNullBuilder
 
-cons2 :: Parser Builder
-cons2 = do literal "cons"
-           pure cons1
+-- Parser to parse the operator "cons".
+consParser :: Parser Builder
+consParser = do literal "cons"
+                pure consBuilder
 
+-- Parser that parses a list operator or a list.
 listOpP :: Parser Lambda
 listOpP = build <$> exprListOp
-
 
 -- | Exercise 2
 
 -- | Implement your function(s) of choice below!
 
+-- Implementation details of these functions will be discussed in the report.
+
 -- Factorial Function
 -- Church encoding of factorial adapted from https://groups.seas.harvard.edu/courses/cs152/2016sp/lectures/lec08-encodings.pdf
+
+-- Handle repeated chains of operators of unknown length that are left associative
+-- that takes in a unary function rather than a binary function as chainl1 does.
 chainl2 :: Parser a -> Parser (a->a) -> Parser a
 chainl2 p op = p >>= rest
     where rest a = (do
@@ -611,71 +721,63 @@ chainl2 p op = p >>= rest
                       rest (f a)
                    ) ||| pure a
 
+-- Parser that parses the factorial of a number.
 exprFact :: Parser Lambda
-exprFact = build <$> chainl2 naturalNo fact1
+exprFact = build <$> chainl2 naturalNo factParser
 
+-- Creates a Builder expression of the number 0.
 zero :: Builder
 zero = lam 'f' (lam 'x' (term 'x'))
 
+-- Creates a Builder expression of the number 1.
 one :: Builder
 one = lam 'f' (lam 'x' (term 'f' `ap` term 'x'))
 
-fact1 :: Parser (Builder -> Builder)
-fact1 = do operator '!'
-           pure fact2
+-- Parser to parse the operator "!".
+factParser :: Parser (Builder -> Builder)
+factParser = do operator '!'
+                pure factBuilder
 
-fact2 :: Builder -> Builder
-fact2 n = fact' `ap` fact' `ap` n
+-- Creates a Builder expression for the operator "!".
+factBuilder :: Builder -> Builder
+factBuilder n = fact' `ap` fact' `ap` n
 
+-- Auxiliary function for to achieve recursion for factorial.
 fact' :: Builder
-fact' = lam 'f' (lam 'n' (if2 `ap` (isZero `ap` term 'n') `ap` one `ap` (mult2 `ap` term 'n' `ap` (term 'f' `ap` term 'f' `ap` (pred1 `ap` term 'n')))))
-
-
--- Fibonacci Sequence Function
--- Church encoding of Fibonacci sequence adapted from https://www.cs.cmu.edu/~venkatg/teaching/15252-sp20/notes/lambda-calculus-slides.pdf
-fibNaturalNo :: Parser Builder
-fibNaturalNo = do spaces
-                  x <- munch1 isDigit
-                  let y = read x
-                  pure $ minus2 (intToLam y) one
-
-fib' :: Builder
-fib' = lam 'f' (lam 'n' (if2 `ap` (isZero `ap` term 'n') `ap` zero `ap` (if2 `ap` (isZero `ap` (pred1 `ap` term 'n')) `ap` one `ap` add2 (term 'f' `ap` term 'f' `ap` (pred1 `ap` term 'n')) (term 'f' `ap` term 'f' `ap` (pred1 `ap` (pred1 `ap` term 'n'))))))
-
-fib1 :: Parser Builder
-fib1 = do literal "fib"
-          pure fib2
-
-fib2 :: Builder
-fib2 = fib' `ap` fib'
-
-exprFib :: Parser Lambda
-exprFib = build <$> chainl1 (fibNaturalNo ||| fib1) (pure ap)
+fact' = lam 'f' (lam 'n' (ifBuilder `ap` (isZero `ap` term 'n') `ap` one `ap` (multBuilder `ap` term 'n' `ap` (term 'f' `ap` term 'f' `ap` (pred1 `ap` term 'n')))))
 
 
 -- Negative Numbers
 -- Church encoding of negative numbers adapted from https://en.wikipedia.org/wiki/Church_encoding#Predicates
+
+-- Creates a Builder expression for a pair of items.
 pair :: Builder
 pair = lam 'x' (lam 'y' (lam 'z' (term 'z' `ap` term 'x' `ap` term 'y')))
 
+-- Creates a Builder expression that returns the first item in the pair.
 first :: Builder
 first = lam 'p' (term 'p' `ap` lam 'x' (lam 'y' (term 'x')))
 
+-- Creates a Builder expression that returns the second item in the pair.
 second :: Builder
 second = lam 'p' (term 'p' `ap` lam 'x' (lam 'y' (term 'y')))
 
+-- Creates a Builder expression that converts a natural number into a signed number.
 convert :: Builder
 convert = lam 'x' (pair `ap` term 'x' `ap` zero)
 
+-- Creates a Builder expression of a negative number.
 negativeNo :: Parser Builder
 negativeNo = do operator '-'
                 x <- munch1 isDigit
                 let y = read x
                 pure $ intToLam y
 
+-- Creates a Builder expression that negates a signed number.
 neg :: Builder
 neg = lam 'x' (pair `ap` (second `ap` term 'x') `ap` (first `ap` term 'x'))
 
+-- Parser that parses a negative number.
 exprNeg :: Parser Lambda
 exprNeg = do x <- negativeNo
              pure $ build $ neg `ap` (convert `ap` x)
