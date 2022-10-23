@@ -31,7 +31,7 @@ version = Version [0,1,0,0] []
 bindir, libdir, dynlibdir, datadir, libexecdir, sysconfdir :: FilePath
 
 bindir     = "/Users/chuashinherh/Desktop/Monash/FIT2102/Assignment 2/a2-2/.stack-work/install/x86_64-osx/149c650c65c77200c64f59239c1b87e132b8b860801448c82009d6a7d7e6073a/9.0.2/bin"
-libdir     = "/Users/chuashinherh/Desktop/Monash/FIT2102/Assignment 2/a2-2/.stack-work/install/x86_64-osx/149c650c65c77200c64f59239c1b87e132b8b860801448c82009d6a7d7e6073a/9.0.2/lib/x86_64-osx-ghc-9.0.2/2022Assignment2-0.1.0.0-2sleSRSS95D3ll1p5WMYQh-2022Assignment2-exe"
+libdir     = "/Users/chuashinherh/Desktop/Monash/FIT2102/Assignment 2/a2-2/.stack-work/install/x86_64-osx/149c650c65c77200c64f59239c1b87e132b8b860801448c82009d6a7d7e6073a/9.0.2/lib/x86_64-osx-ghc-9.0.2/2022Assignment2-0.1.0.0-qmFXnbNxMTGXu3knB8Kna-2022Assignment2-exe"
 dynlibdir  = "/Users/chuashinherh/Desktop/Monash/FIT2102/Assignment 2/a2-2/.stack-work/install/x86_64-osx/149c650c65c77200c64f59239c1b87e132b8b860801448c82009d6a7d7e6073a/9.0.2/lib/x86_64-osx-ghc-9.0.2"
 datadir    = "/Users/chuashinherh/Desktop/Monash/FIT2102/Assignment 2/a2-2/.stack-work/install/x86_64-osx/149c650c65c77200c64f59239c1b87e132b8b860801448c82009d6a7d7e6073a/9.0.2/share/x86_64-osx-ghc-9.0.2/2022Assignment2-0.1.0.0"
 libexecdir = "/Users/chuashinherh/Desktop/Monash/FIT2102/Assignment 2/a2-2/.stack-work/install/x86_64-osx/149c650c65c77200c64f59239c1b87e132b8b860801448c82009d6a7d7e6073a/9.0.2/libexec/x86_64-osx-ghc-9.0.2/2022Assignment2-0.1.0.0"
