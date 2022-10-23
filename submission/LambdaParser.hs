@@ -730,6 +730,9 @@ chainl2 p op = p >>= rest
                       rest (f a)
                    ) ||| pure a
 
+yCombinator :: Builder
+yCombinator = lam 'f' (lam 'x' (term 'f' `ap` (term 'x' `ap` term 'x')) `ap` lam 'x' (term 'f' `ap` (term 'x' `ap` term 'x')))
+
 -- Parser that parses the factorial of a number.
 factP :: Parser Lambda
 factP = build <$> chainl2 naturalNo factParser
@@ -749,12 +752,12 @@ factParser = do operator '!'
 
 -- Creates a Builder expression for the operator "!".
 factBuilder :: Builder -> Builder
-factBuilder = ap (ap fact' fact')
+factBuilder = ap (ap yCombinator fact')
 
 -- Auxiliary function for to achieve recursion for factorial.
 fact' :: Builder
 fact' = lam 'f' (lam 'n' (ifBuilder `ap` (isZero `ap` term 'n') `ap` one `ap`
-    (multBuilder `ap` term 'n' `ap` (term 'f' `ap` term 'f' `ap` (pred1 `ap` term 'n')))))
+    (multBuilder `ap` term 'n' `ap` (term 'f' `ap` (pred1 `ap` term 'n')))))
 
 
 -- Negative Numbers
